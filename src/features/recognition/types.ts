@@ -13,6 +13,6 @@ export interface SignClassifier {
   readonly license: string;
   readonly labels: readonly string[];
   load(signal?: AbortSignal): Promise<void>;
-  predict(landmarks: HandLandmarks[]): Promise<PredictionResult | null>;
+  predict(landmarks: HandLandmarks[], handedness?: string[]): Promise<PredictionResult | null>;
   dispose(): void;
 }

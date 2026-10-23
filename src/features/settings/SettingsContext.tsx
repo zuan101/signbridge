@@ -15,7 +15,11 @@ const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<AppSettings>(() => {
-    return getStorageItem<AppSettings>(SETTINGS_STORAGE_KEY, DEFAULT_SETTINGS);
+    const loaded = getStorageItem<AppSettings>(SETTINGS_STORAGE_KEY, DEFAULT_SETTINGS);
+    if (loaded && loaded.recognitionMode === 'isl-geometric') {
+      return { ...loaded, recognitionMode: 'isl-fingerspelling' };
+    }
+    return loaded;
   });
 
   useEffect(() => {

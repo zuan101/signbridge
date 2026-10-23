@@ -55,17 +55,33 @@ export function useHandTracker({
           visionWasm = await FilesetResolver.forVisionTasks('./wasm');
         }
 
-        const landmarker = await HandLandmarker.createFromOptions(visionWasm, {
-          baseOptions: {
-            modelAssetPath: '/models/hand_landmarker.task',
-            delegate: 'GPU',
-          },
-          runningMode: 'VIDEO',
-          numHands: 2,
-          minHandDetectionConfidence: 0.5,
-          minHandPresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5,
-        });
+        let landmarker: HandLandmarker;
+        try {
+          landmarker = await HandLandmarker.createFromOptions(visionWasm, {
+            baseOptions: {
+              modelAssetPath: '/models/hand_landmarker.task',
+              delegate: 'GPU',
+            },
+            runningMode: 'VIDEO',
+            numHands: 2,
+            minHandDetectionConfidence: 0.5,
+            minHandPresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+          });
+        } catch (gpuErr) {
+          console.warn('GPU delegate failed or unavailable, falling back to CPU delegate:', gpuErr);
+          landmarker = await HandLandmarker.createFromOptions(visionWasm, {
+            baseOptions: {
+              modelAssetPath: '/models/hand_landmarker.task',
+              delegate: 'CPU',
+            },
+            runningMode: 'VIDEO',
+            numHands: 2,
+            minHandDetectionConfidence: 0.5,
+            minHandPresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+          });
+        }
 
         if (isCancelled) {
           landmarker.close();
@@ -98,6 +114,9 @@ export function useHandTracker({
     };
   }, []);
 
+  const lastInferenceTimeRef = useRef<number>(0);
+  const lastTimestampMsRef = useRef<number>(0);
+
   // Main Detection Loop (Video stream -> Landmarker -> Canvas / Callbacks)
   const processFrame = useCallback(() => {
     const video = videoRef.current;
@@ -111,22 +130,33 @@ export function useHandTracker({
     }
 
     const currentTime = video.currentTime;
-    if (currentTime !== lastVideoTimeRef.current) {
+    const now = performance.now();
+
+    // Throttle inference to ~30 FPS (every ~32ms) to prevent CPU starvation and webcam lag
+    const elapsedSinceLastInference = now - lastInferenceTimeRef.current;
+
+    if (currentTime !== lastVideoTimeRef.current && elapsedSinceLastInference >= 32) {
       lastVideoTimeRef.current = currentTime;
-      const timestampMs = performance.now();
+      lastInferenceTimeRef.current = now;
+
+      // Ensure monotonically increasing timestamp for MediaPipe
+      const timestampMs = Math.max(now, lastTimestampMsRef.current + 1);
+      lastTimestampMsRef.current = timestampMs;
 
       try {
         const results = landmarker.detectForVideo(video, timestampMs);
         const hands = results.landmarks || [];
-        setDetectedHandsCount(hands.length);
+        const handCount = hands.length;
+
+        // Only trigger React state change if hand count changed
+        setDetectedHandsCount(prev => prev === handCount ? prev : handCount);
 
         // Real FPS measurement
         frameCountRef.current += 1;
-        const now = performance.now();
         const delta = now - lastFpsUpdateRef.current;
         if (delta >= 1000) {
           const currentFps = Math.round((frameCountRef.current * 1000) / delta);
-          setFps(currentFps);
+          setFps(prev => Math.abs(prev - currentFps) > 1 ? currentFps : prev);
           frameCountRef.current = 0;
           lastFpsUpdateRef.current = now;
         }
@@ -141,7 +171,7 @@ export function useHandTracker({
               canvas.height = video.videoHeight || 480;
             }
 
-            if (showLandmarks && hands.length > 0) {
+            if (showLandmarks && handCount > 0) {
               drawLandmarks(ctx, hands as HandLandmarks[], canvas.width, canvas.height);
             } else {
               ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -162,7 +192,7 @@ export function useHandTracker({
     if (isStreaming) {
       animFrameIdRef.current = requestAnimationFrame(processFrame);
     }
-  }, [canvasRef, isStreaming, showLandmarks, videoRef, fps]);
+  }, [canvasRef, isStreaming, showLandmarks, videoRef]);
 
   useEffect(() => {
     if (isStreaming && status === 'ready') {

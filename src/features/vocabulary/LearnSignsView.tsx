@@ -10,7 +10,7 @@ export const LearnSignsView: React.FC<LearnSignsViewProps> = ({ onPracticeSign }
   const [search, setSearch] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
-  const categories = ['All', 'Greetings', 'Help', 'Directions', 'Common Phrases', 'Numbers', 'Campus'];
+  const categories = ['All', 'Alphabet', 'Numbers', 'Greetings', 'Help', 'Directions', 'Common Phrases', 'Campus'];
 
   const filteredSigns = useMemo(() => {
     return VERIFIED_ISL_SIGNS.filter(sign => {

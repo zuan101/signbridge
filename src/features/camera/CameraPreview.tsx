@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Camera, CameraOff, Sparkles, RefreshCw, AlertCircle, Info, ShieldCheck } from 'lucide-react';
+import { Camera, CameraOff, Sparkles, RefreshCw, AlertCircle, Info, ShieldCheck, BookOpen } from 'lucide-react';
 import type { CameraStatus } from './useCamera';
 import type { TrackerStatus } from '../tracking/types';
 import type { RecognitionMode } from '../settings/types';
@@ -16,9 +16,13 @@ interface CameraPreviewProps {
   mirrored: boolean;
   onToggleCamera: () => void;
   recognitionMode: RecognitionMode;
-  onTriggerDemoSign?: (sign: string) => void;
   detectedLabel?: string | null;
   confidence?: number | null;
+  holdProgress?: number;
+  holdLetter?: string | null;
+  onChangeMode?: (mode: RecognitionMode) => void;
+  onOpenGestureGuide?: () => void;
+  onTriggerDemoSign?: (label: string) => void;
 }
 
 export const CameraPreview: React.FC<CameraPreviewProps> = ({
@@ -36,6 +40,10 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   onTriggerDemoSign,
   detectedLabel,
   confidence,
+  holdProgress = 0,
+  holdLetter,
+  onChangeMode,
+  onOpenGestureGuide,
 }) => {
   const [showGuide, setShowGuide] = useState<boolean>(false);
 
@@ -57,6 +65,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
           ref={videoRef}
           className={`camera-video ${mirrored ? 'mirrored' : ''}`}
           playsInline
+          autoPlay
           muted
         />
         <canvas
@@ -157,34 +166,130 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
           </div>
         )}
 
-        {/* Active Sign Result Pill */}
-        {isStreaming && detectedLabel && (
+        {/* Active Sign Result Pill with Hold Progress Meter */}
+        {isStreaming && (detectedLabel || holdLetter) && (
           <div
             style={{
               position: 'absolute',
-              bottom: '12px',
+              bottom: '14px',
               left: '50%',
               transform: 'translateX(-50%)',
-              backgroundColor: 'var(--terracotta)',
+              backgroundColor: 'rgba(40, 24, 16, 0.92)',
+              backdropFilter: 'blur(8px)',
+              border: '1.5px solid var(--terracotta)',
               color: 'var(--cream)',
-              padding: '0.5rem 1.25rem',
+              padding: '0.45rem 1.15rem',
               borderRadius: 'var(--radius-full)',
-              fontSize: '0.95rem',
+              fontSize: '0.92rem',
               fontWeight: 700,
-              boxShadow: 'var(--shadow-md)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
               display: 'flex',
               alignItems: 'center',
-              gap: '0.5rem',
+              gap: '0.65rem',
+              zIndex: 10,
             }}
           >
-            <Sparkles size={16} />
-            <span>{detectedLabel}</span>
-            {confidence && (
-              <span style={{ fontSize: '0.75rem', opacity: 0.9 }}>
-                ({(confidence * 100).toFixed(0)}% conf)
+            {/* Circular Hold Progress Ring */}
+            <div style={{ position: 'relative', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="28" height="28" viewBox="0 0 32 32">
+                <circle cx="16" cy="16" r="13" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3" />
+                <circle
+                  cx="16"
+                  cy="16"
+                  r="13"
+                  fill="none"
+                  stroke={holdProgress >= 1 ? 'var(--olive)' : 'var(--terracotta)'}
+                  strokeWidth="3.5"
+                  strokeDasharray={81.68}
+                  strokeDashoffset={81.68 * (1 - Math.max(0, Math.min(1, holdProgress)))}
+                  strokeLinecap="round"
+                  transform="rotate(-90 16 16)"
+                  style={{ transition: 'stroke-dashoffset 50ms linear' }}
+                />
+              </svg>
+              <span style={{ position: 'absolute', fontSize: '0.8rem', fontWeight: 800, color: 'var(--cream)' }}>
+                {holdLetter || detectedLabel}
               </span>
-            )}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: '120px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <Sparkles size={14} color="var(--sand)" />
+                <span style={{ fontSize: '0.9rem', color: 'var(--cream)', lineHeight: 1.1 }}>
+                  {holdProgress > 0 && holdProgress < 1
+                    ? `Hold '${holdLetter}' (${Math.round(holdProgress * 100)}%)`
+                    : holdProgress >= 1
+                    ? `Added '${holdLetter}'!`
+                    : `Sign: ${detectedLabel}`}
+                </span>
+              </div>
+              {confidence && (
+                <span style={{ fontSize: '0.7rem', color: 'var(--sand)', opacity: 0.85, marginTop: '2px' }}>
+                  {(confidence * 100).toFixed(0)}% confidence
+                </span>
+              )}
+            </div>
           </div>
+        )}
+      </div>
+
+      {/* Quick Mode Switcher Bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0.45rem 0.75rem',
+          backgroundColor: 'var(--cream)',
+          borderBottom: '1px solid var(--border)',
+          gap: '0.5rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.73rem', fontWeight: 700, color: 'var(--chocolate)', marginRight: '0.2rem' }}>
+            Mode:
+          </span>
+          <button
+            type="button"
+            className={`btn ${recognitionMode === 'isl-fingerspelling' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem' }}
+            onClick={() => onChangeMode && onChangeMode('isl-fingerspelling')}
+            title="Recognises Alphabet A-Z and forms words in real time"
+          >
+            🔤 Alphabet A–Z
+          </button>
+          <button
+            type="button"
+            className={`btn ${recognitionMode === 'isl-numbers' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem' }}
+            onClick={() => onChangeMode && onChangeMode('isl-numbers')}
+            title="Recognises Digits 0-9 and accumulates numerals"
+          >
+            🔢 Numbers 0–9
+          </button>
+          <button
+            type="button"
+            className={`btn ${recognitionMode === 'isl-phrases' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem' }}
+            onClick={() => onChangeMode && onChangeMode('isl-phrases')}
+            title="Recognises Namaste, Thank You, Help, Please Wait, etc."
+          >
+            👋 Greetings & Phrases
+          </button>
+        </div>
+
+        {onOpenGestureGuide && (
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+            onClick={onOpenGestureGuide}
+            title="Open Visual Hand Gesture Cheat-Sheet"
+          >
+            <BookOpen size={13} color="var(--terracotta)" />
+            <span>Visual Guide</span>
+          </button>
         )}
       </div>
 
@@ -203,10 +308,22 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             <span>Tracking: {trackerStatus}</span>
           </span>
 
-          {/* Mode Pill */}
-          <span className="status-pill neutral">
+          {/* Active Mode Pill */}
+          <span className="status-pill active">
             <span>
-              Mode: {recognitionMode === 'isl-geometric' ? 'ISL Geometric Static Signs' : recognitionMode === 'demo-mode' ? 'Demo / Testing Mode' : 'Hand Tracking Only'}
+              {
+                recognitionMode === 'isl-fingerspelling'
+                  ? 'ISL Alphabet (A–Z Words)'
+                  : recognitionMode === 'isl-numbers'
+                  ? 'ISL Numbers (0–9 Digits)'
+                  : recognitionMode === 'isl-phrases'
+                  ? 'ISL Greetings & Phrases'
+                  : recognitionMode === 'isl-geometric'
+                  ? 'ISL Conversational Signs'
+                  : recognitionMode === 'demo-mode'
+                  ? 'Demo / Testing Mode'
+                  : 'Hand Tracking Only'
+              }
             </span>
           </span>
         </div>

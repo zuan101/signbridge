@@ -1,7 +1,7 @@
 export interface SignItem {
   id: string;
   name: string;
-  category: 'Greetings' | 'Help' | 'Directions' | 'Common Phrases' | 'Numbers' | 'Campus';
+  category: 'Alphabet' | 'Greetings' | 'Help' | 'Directions' | 'Common Phrases' | 'Numbers' | 'Campus';
   meaning: string;
   instructions: string;
   sourceUrl: string;

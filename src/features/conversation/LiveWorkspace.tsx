@@ -11,14 +11,19 @@ import { MessageList } from './MessageList';
 import { ReplyComposer } from './ReplyComposer';
 import { LargeDisplayMode } from './LargeDisplayMode';
 import { Dialog } from '../../components/ui/Dialog';
-import { ISLGeometricClassifier } from '../recognition/adapters/ISLGeometricClassifier';
+import { ISLFingerspellingClassifier } from '../recognition/adapters/ISLFingerspellingClassifier';
+import { ISLNumbersClassifier } from '../recognition/adapters/ISLNumbersClassifier';
+import { ISLPhrasesClassifier } from '../recognition/adapters/ISLPhrasesClassifier';
 import { ManualDemoSource } from '../recognition/adapters/ManualDemoSource';
 import { TemporalBuffer } from '../recognition/temporalSmoothing';
+import { WordBuilder } from '../recognition/WordBuilder';
+import { GestureGuideModal } from './GestureGuideModal';
 import { saveSession } from '../history/historyStore';
 import { copyToClipboard, downloadTextFile } from '../../lib/clipboard';
 import { Maximize2, Copy, Download, RefreshCw, Trash2, Video, MessageSquare, AlertTriangle } from 'lucide-react';
 import type { HandLandmarks } from '../tracking/types';
 import type { PredictionResult } from '../recognition/types';
+import type { RecognitionMode } from '../settings/types';
 
 interface LiveWorkspaceProps {
   currentSession: ConversationSession;
@@ -35,20 +40,29 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
   activeSignToPractice,
   onClearPracticeSign,
 }) => {
-  const { settings } = useSettings();
+  const { settings, updateSettings } = useSettings();
   const { showToast } = useToast();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [proposalText, setProposalText] = useState<string>('');
+  const [currentWord, setCurrentWord] = useState<string>('');
   const [detectedLabel, setDetectedLabel] = useState<string | null>(null);
   const [activeConfidence, setActiveConfidence] = useState<number | null>(null);
+  const [holdProgress, setHoldProgress] = useState<number>(0);
+  const [holdLetter, setHoldLetter] = useState<string | null>(null);
   const [isLargeDisplayOpen, setIsLargeDisplayOpen] = useState<boolean>(false);
   const [confirmClearChat, setConfirmClearChat] = useState<boolean>(false);
+  const [isGestureGuideOpen, setIsGestureGuideOpen] = useState<boolean>(false);
 
-  // Classifiers & Smoothing Buffer
-  const geometricClassifierRef = useRef(new ISLGeometricClassifier());
-  const manualDemoRef = useRef(new ManualDemoSource());
-  const temporalBufferRef = useRef(new TemporalBuffer(6, settings.stabilityFrames, settings.confidenceThreshold));
+  // Classifiers, smoothing, and word builder
+  const fingerspellingRef        = useRef(new ISLFingerspellingClassifier());
+  const numbersRef               = useRef(new ISLNumbersClassifier());
+  const phrasesRef               = useRef(new ISLPhrasesClassifier());
+  const manualDemoRef            = useRef(new ManualDemoSource());
+  // Fingerspelling/Numbers temporal smoothing
+  const temporalBufferRef        = useRef(new TemporalBuffer(5, settings.stabilityFrames, settings.confidenceThreshold, 700));
+  // WordBuilder with 280ms hold-to-confirm, 1500ms word pause
+  const wordBuilderRef           = useRef(new WordBuilder(280, 1500));
 
   // Sync temporal buffer config with settings
   useEffect(() => {
@@ -75,41 +89,78 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
 
   // Main frame inference handler
   const handleFrame = useCallback(
-    async (landmarks: HandLandmarks[]) => {
+    async (landmarks: HandLandmarks[], handedness: string[] = []) => {
       if (settings.recognitionMode === 'tracking-only') {
         setDetectedLabel(null);
         setActiveConfidence(null);
+        setHoldProgress(0);
+        setHoldLetter(null);
         return;
       }
 
       let rawPrediction: PredictionResult | null = null;
+      const handPresent = landmarks.length > 0;
 
-      if (settings.recognitionMode === 'isl-geometric') {
-        rawPrediction = await geometricClassifierRef.current.predict(landmarks);
+      if (settings.recognitionMode === 'isl-fingerspelling') {
+        rawPrediction = await fingerspellingRef.current.predict(landmarks, handedness);
+      } else if (settings.recognitionMode === 'isl-numbers') {
+        rawPrediction = await numbersRef.current.predict(landmarks, handedness);
+      } else if (settings.recognitionMode === 'isl-phrases' || settings.recognitionMode === 'isl-geometric') {
+        rawPrediction = await phrasesRef.current.predict(landmarks, handedness);
       } else if (settings.recognitionMode === 'demo-mode') {
         rawPrediction = await manualDemoRef.current.predict(landmarks);
       }
 
-      // Smooth predictions across frames to eliminate jitter and repeated triggers
-      const smoothed = temporalBufferRef.current.push(rawPrediction);
+      if (settings.recognitionMode === 'isl-fingerspelling' || settings.recognitionMode === 'isl-numbers') {
+        // ── Word & Digits building mode with Hold-to-Confirm ──
+        const candidate = rawPrediction ? rawPrediction.label : null;
+        const wbStatus = wordBuilderRef.current.push(candidate, handPresent);
 
-      if (smoothed) {
-        setDetectedLabel(smoothed.label);
-        setActiveConfidence(smoothed.confidence);
-        setProposalText(prev => {
-          const trimmed = prev.trim();
-          return trimmed ? `${trimmed} ${smoothed.label}` : smoothed.label;
-        });
-      } else if (rawPrediction) {
-        // Show active label HUD even during smoothing hold
-        setDetectedLabel(rawPrediction.label);
-        setActiveConfidence(rawPrediction.confidence);
+        setProposalText(prev => prev !== wbStatus.text ? wbStatus.text : prev);
+        setCurrentWord(prev => prev !== wbStatus.currentWord ? wbStatus.currentWord : prev);
+        setHoldProgress(wbStatus.holdProgress);
+        setHoldLetter(wbStatus.holdLetter);
+
+        if (wbStatus.justCommittedLetter) {
+          showToast(`Added: "${wbStatus.justCommittedLetter}"`, 'info');
+        }
+
+        // Update HUD label
+        if (rawPrediction) {
+          const nextLabel = rawPrediction.label;
+          const nextConf = Math.round(rawPrediction.confidence * 100) / 100;
+          setDetectedLabel(prev => (prev !== nextLabel ? nextLabel : prev));
+          setActiveConfidence(prev => (prev !== nextConf ? nextConf : prev));
+        } else {
+          setDetectedLabel(null);
+          setActiveConfidence(null);
+        }
       } else {
-        setDetectedLabel(null);
-        setActiveConfidence(null);
+        // ── Conversational Whole Phrases / Demo Mode ──
+        setHoldProgress(0);
+        setHoldLetter(null);
+        const smoothed = temporalBufferRef.current.push(rawPrediction);
+
+        if (smoothed) {
+          setDetectedLabel(prev => (prev !== smoothed.label ? smoothed.label : prev));
+          setActiveConfidence(prev => (prev !== smoothed.confidence ? smoothed.confidence : prev));
+          setProposalText(prev => {
+            const trimmed = prev.trim();
+            return trimmed ? `${trimmed} ${smoothed.label}` : smoothed.label;
+          });
+          showToast(`Phrase detected: "${smoothed.label}"`, 'success');
+        } else if (rawPrediction) {
+          const nextLabel = rawPrediction.label;
+          const nextConf = Math.round(rawPrediction.confidence * 100) / 100;
+          setDetectedLabel(prev => (prev !== nextLabel ? nextLabel : prev));
+          setActiveConfidence(prev => (prev !== nextConf ? nextConf : prev));
+        } else {
+          setDetectedLabel(null);
+          setActiveConfidence(null);
+        }
       }
     },
-    [settings.recognitionMode]
+    [settings.recognitionMode, showToast]
   );
 
   // Hand tracking hook
@@ -163,8 +214,12 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
 
     setCurrentSession(updatedSession);
     setProposalText('');
+    setCurrentWord('');
     setDetectedLabel(null);
+    setHoldProgress(0);
+    setHoldLetter(null);
     temporalBufferRef.current.reset();
+    wordBuilderRef.current.reset();
 
     if (settings.saveTranscripts) {
       saveSession(updatedSession);
@@ -278,19 +333,49 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
           onTriggerDemoSign={handleTriggerDemoSign}
           detectedLabel={detectedLabel}
           confidence={activeConfidence}
+          holdProgress={holdProgress}
+          holdLetter={holdLetter}
+          onChangeMode={(mode: RecognitionMode) => updateSettings({ recognitionMode: mode })}
+          onOpenGestureGuide={() => setIsGestureGuideOpen(true)}
         />
 
         <ProposalComposer
           proposalText={proposalText}
-          onChangeProposal={setProposalText}
+          currentWord={currentWord}
+          onChangeProposal={(text) => {
+            setProposalText(text);
+            wordBuilderRef.current.set(text);
+            setCurrentWord(wordBuilderRef.current.currentWord);
+          }}
           onConfirmSend={handleConfirmSendSigner}
           onClear={() => {
             setProposalText('');
+            setCurrentWord('');
             setDetectedLabel(null);
+            setHoldProgress(0);
+            setHoldLetter(null);
             temporalBufferRef.current.reset();
+            wordBuilderRef.current.reset();
+          }}
+          onCompleteWord={(word) => {
+            const next = wordBuilderRef.current.completeWord(word);
+            setProposalText(next);
+            setCurrentWord(wordBuilderRef.current.currentWord);
+          }}
+          onBackspace={() => {
+            const next = wordBuilderRef.current.backspace();
+            setProposalText(next);
+            setCurrentWord(wordBuilderRef.current.currentWord);
+          }}
+          onAddSpace={() => {
+            const next = wordBuilderRef.current.addSpace();
+            setProposalText(next);
+            setCurrentWord(wordBuilderRef.current.currentWord);
           }}
           activeConfidence={activeConfidence}
           detectedLabel={detectedLabel}
+          holdProgress={holdProgress}
+          holdLetter={holdLetter}
         />
       </section>
 
@@ -414,6 +499,14 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
           </p>
         </div>
       </Dialog>
+
+      {/* Visual Hand Gesture Guide Modal */}
+      <GestureGuideModal
+        isOpen={isGestureGuideOpen}
+        onClose={() => setIsGestureGuideOpen(false)}
+        onSelectMode={(mode) => updateSettings({ recognitionMode: mode })}
+        activeMode={settings.recognitionMode}
+      />
     </div>
   );
 };

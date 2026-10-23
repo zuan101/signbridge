@@ -10,9 +10,15 @@ import { LiveRegion } from './components/ui/LiveRegion';
 import { KeyboardHelpDialog } from './components/ui/KeyboardHelpDialog';
 import { saveSession } from './features/history/historyStore';
 import type { ConversationSession } from './features/conversation/types';
+import { SignTextLanding } from './features/website/SignTextLanding';
+import { LoginPage } from './features/website/LoginPage';
+import { SignUpPage } from './features/website/SignUpPage';
 import { 
-  MessageSquare, BookOpen, Clock, Settings, HelpCircle, Shield, Sparkles 
+  MessageSquare, BookOpen, Clock, Settings, HelpCircle, Shield, Sparkles, Home 
 } from 'lucide-react';
+
+// Top-level page routing
+type AppPage = 'landing' | 'login' | 'signup' | 'app';
 
 type NavigationTab = 'live' | 'learn' | 'history' | 'settings';
 
@@ -26,7 +32,7 @@ function createNewSession(): ConversationSession {
   };
 }
 
-const SignBridgeApp: React.FC = () => {
+const SignBridgeAppInner: React.FC<{ onGoHome: () => void }> = ({ onGoHome }) => {
   const { settings, updateSettings } = useSettings();
   const { showToast } = useToast();
 
@@ -191,7 +197,18 @@ const SignBridgeApp: React.FC = () => {
             aria-label="Open keyboard shortcuts help"
           >
             <HelpCircle size={16} />
-            <span>Shortcuts & Help (?)</span>
+            <span>Shortcuts &amp; Help (?)</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: '0.8rem', color: 'var(--sand)', justifyContent: 'flex-start', padding: '0.5rem 0.75rem', borderTop: '1px solid rgba(238,220,197,0.12)', marginTop: '0.25rem' }}
+            onClick={onGoHome}
+            aria-label="Return to SignText Home page"
+          >
+            <Home size={16} />
+            <span>← SignText Home</span>
           </button>
         </div>
       </aside>
@@ -314,12 +331,61 @@ const SignBridgeApp: React.FC = () => {
   );
 };
 
+// Root router: Landing → Login/SignUp → App workspace
 export default function App() {
+  const [currentPage, setCurrentPage] = useState<AppPage>('landing');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  const goToApp = () => setCurrentPage('app');
+  const goToLogin = () => setCurrentPage('login');
+  const goToSignUp = () => setCurrentPage('signup');
+  const goToHome = () => setCurrentPage('landing');
+  const toggleTheme = () => setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+
+  if (currentPage === 'landing') {
+    return (
+      <SignTextLanding
+        onNavigateToApp={goToApp}
+        onNavigateToLogin={goToLogin}
+        onNavigateToSignUp={goToSignUp}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
+    );
+  }
+
+  if (currentPage === 'login') {
+    return (
+      <LoginPage
+        onNavigateToApp={goToApp}
+        onNavigateToSignUp={goToSignUp}
+        onNavigateToHome={goToHome}
+      />
+    );
+  }
+
+  if (currentPage === 'signup') {
+    return (
+      <SignUpPage
+        onNavigateToApp={goToApp}
+        onNavigateToLogin={goToLogin}
+        onNavigateToHome={goToHome}
+      />
+    );
+  }
+
+  // Main SignBridge/SignText workspace
   return (
     <SettingsProvider>
       <ToastProvider>
-        <SignBridgeApp />
+        <SignBridgeAppWithHome onGoHome={goToHome} />
       </ToastProvider>
     </SettingsProvider>
   );
 }
+
+// Thin wrapper that passes a home button callback into the sidebar
+const SignBridgeAppWithHome: React.FC<{ onGoHome: () => void }> = ({ onGoHome }) => {
+  // Re-use the full SignBridgeApp but inject the home button via a wrapper layer
+  return <SignBridgeAppInner onGoHome={onGoHome} />;
+};

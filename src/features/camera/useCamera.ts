@@ -101,10 +101,19 @@ export function useCamera(preferredDeviceId?: string): UseCameraReturn {
       });
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(e => {
-          console.warn('Video play interrupted:', e);
-        });
+        const video = videoRef.current;
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          if (token === activeTokenRef.current) {
+            video.play().catch(e => {
+              console.warn('Video play interrupted:', e);
+            });
+          }
+        };
+        // Also call play immediately if metadata is already loaded
+        if (video.readyState >= 1) {
+          video.play().catch(e => console.warn('Immediate video play interrupted:', e));
+        }
       }
 
       // Update active device ID from real track settings

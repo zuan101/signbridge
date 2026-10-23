@@ -129,9 +129,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
             {[
               {
-                id: 'isl-geometric' as RecognitionMode,
-                title: 'ISL Geometric Static Signs (Active Classifier)',
-                desc: 'Scale-invariant, wrist-relative mathematical matching for verified ISL static numbers (1-5) and greetings.',
+                id: 'isl-fingerspelling' as RecognitionMode,
+                title: '✦ ISL Alphabet A–Z  (Word Builder)',
+                desc: 'Recognises all 26 letters of the ISL/ASL fingerspelling alphabet. Letters accumulate into words with hold-to-confirm and real-time dictionary suggestions.',
+              },
+              {
+                id: 'isl-numbers' as RecognitionMode,
+                title: '🔢 ISL Numbers 0–9  (Dedicated Digits Section)',
+                desc: 'Dedicated digits recognition for numerals 0 to 9 (e.g. room numbers, phone numbers, fees). Completely separated from letters to eliminate confusion.',
+              },
+              {
+                id: 'isl-phrases' as RecognitionMode,
+                title: '👋 ISL Greetings, Thanks & Phrases',
+                desc: 'Recognises full conversational signs like Namaste / Hello, Thank You, Please Wait, Help, Yes, No, and Good directly into dialogue.',
               },
               {
                 id: 'tracking-only' as RecognitionMode,
@@ -172,7 +182,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             ))}
           </div>
 
-          {settings.recognitionMode === 'isl-geometric' && (
+          {(settings.recognitionMode === 'isl-fingerspelling' || settings.recognitionMode === 'isl-numbers' || settings.recognitionMode === 'isl-phrases' || settings.recognitionMode === 'isl-geometric') && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)' }}>
               <div>
                 <label htmlFor="conf-slider" className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Send, VolumeX } from 'lucide-react';
+import { Send, VolumeX, Mic } from 'lucide-react';
+import { VoiceMessageTranscriberModal } from './VoiceMessageTranscriberModal';
 
 interface ReplyComposerProps {
   onSendReply: (text: string) => void;
@@ -15,6 +16,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   onStopSpeaking,
 }) => {
   const [text, setText] = useState<string>('');
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState<boolean>(false);
 
   const handleSend = () => {
     if (!text.trim()) return;
@@ -75,6 +77,17 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
             <span>Reply</span>
           </button>
 
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setIsVoiceModalOpen(true)}
+            style={{ height: '32px', fontSize: '0.75rem', padding: '0 0.5rem', gap: '0.35rem' }}
+            title="Convert voice message file (.mp3, .wav) or voice note to text"
+          >
+            <Mic size={14} color="var(--terracotta)" />
+            <span>Voice Note</span>
+          </button>
+
           {isSpeaking && (
             <button
               type="button"
@@ -89,6 +102,14 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
           )}
         </div>
       </div>
+
+      {/* Voice Message to Text Modal */}
+      <VoiceMessageTranscriberModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        onInsertText={(transcribed) => setText(prev => prev ? `${prev} ${transcribed}` : transcribed)}
+        targetRole="receptionist"
+      />
     </div>
   );
 };

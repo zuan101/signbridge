@@ -1,4 +1,10 @@
-export type RecognitionMode = 'tracking-only' | 'isl-geometric' | 'demo-mode';
+export type RecognitionMode =
+  | 'isl-fingerspelling'
+  | 'isl-numbers'
+  | 'isl-phrases'
+  | 'isl-geometric'
+  | 'tracking-only'
+  | 'demo-mode';
 export type FontSize = 'small' | 'medium' | 'large' | 'xlarge';
 export type AppTheme = 'light' | 'dark';
 
@@ -34,7 +40,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   cameraDeviceId: '',
   mirrorPreview: true,
   showLandmarks: true,
-  recognitionMode: 'isl-geometric',
+  recognitionMode: 'isl-fingerspelling',
   confidenceThreshold: 0.70,
   stabilityFrames: 4,
   speechEnabled: true,
