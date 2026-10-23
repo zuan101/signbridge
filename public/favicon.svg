@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="16" fill="#382116"/>
+  <!-- Warm bridge arch connecting two points -->
+  <path d="M 12 44 C 18 20, 46 20, 52 44" fill="none" stroke="#C96332" stroke-width="6" stroke-linecap="round"/>
+  <!-- Two stylized hands / nodes in terracotta & cream -->
+  <circle cx="20" cy="38" r="6" fill="#B94E2F"/>
+  <circle cx="44" cy="38" r="6" fill="#FFF9F1"/>
+  <circle cx="32" cy="22" r="4" fill="#EEDCC5"/>
+</svg>
