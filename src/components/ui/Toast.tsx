@@ -10,7 +10,7 @@ interface ToastItem {
 }
 
 interface ToastContextValue {
-  showToast: (message: string, type?: ToastType) => void;
+  showToast: (message: string | unknown, type?: ToastType) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -18,9 +18,18 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const showToast = useCallback((message: string, type: ToastType = 'info') => {
+  const showToast = useCallback((message: string | unknown, type: ToastType = 'info') => {
+    let cleanText = 'Notification';
+    if (typeof message === 'string') {
+      cleanText = message;
+    } else if (message instanceof Error) {
+      cleanText = message.message;
+    } else if (message && typeof message === 'object') {
+      const obj = message as Record<string, unknown>;
+      cleanText = typeof obj.message === 'string' ? obj.message : JSON.stringify(message);
+    }
     const id = Math.random().toString(36).substring(2, 9);
-    setToasts(prev => [...prev, { id, message, type }]);
+    setToasts(prev => [...prev, { id, message: cleanText, type }]);
 
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
@@ -60,12 +69,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 };
 
-export function useToast(): ToastContextValue {
-  const ctx = useContext(ToastContext);
-  if (!ctx) {
+export const useToast = () => {
+  const context = useContext(ToastContext);
+  if (!context) {
     return {
       showToast: () => {},
     };
   }
-  return ctx;
-}
+  return context;
+};

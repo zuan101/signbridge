@@ -20,7 +20,7 @@ import { WordBuilder } from '../recognition/WordBuilder';
 import { GestureGuideModal } from './GestureGuideModal';
 import { saveSession } from '../history/historyStore';
 import { copyToClipboard, downloadTextFile } from '../../lib/clipboard';
-import { fetchAIStatus, sendChatMessage, saveAIKey, type AIStatus } from './aiClient';
+import { fetchAIStatus, sendChatMessage, normalizeMessageText, type AIStatus } from './aiClient';
 import { 
   Maximize2, 
   Copy, 
@@ -32,7 +32,7 @@ import {
   AlertTriangle, 
   CheckCircle2, 
   HelpCircle,
-  Key
+  Sparkles
 } from 'lucide-react';
 import type { HandLandmarks } from '../tracking/types';
 import type { PredictionResult } from '../recognition/types';
@@ -68,18 +68,15 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
   const [isGestureGuideOpen, setIsGestureGuideOpen] = useState<boolean>(false);
   const [isAiSetupOpen, setIsAiSetupOpen] = useState<boolean>(false);
 
-  // AI Chatbot State
+  // Chatbot State
   const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [apiKeyInput, setApiKeyInput] = useState<string>('');
-  const [apiProviderSelect, setApiProviderSelect] = useState<'gemini' | 'openai'>('gemini');
-  const [isSavingKey, setIsSavingKey] = useState<boolean>(false);
   const [aiStatus, setAiStatus] = useState<AIStatus>({
     configured: true,
-    provider: 'signbridge-ai',
-    model: 'isl-dialog-v1',
+    provider: 'SignBridge Assistant',
+    model: 'Built-in Knowledge Engine',
     isBuiltin: true,
-    message: 'SignBridge Conversational AI is active',
+    message: 'SignBridge Assistant is active and ready (no API key required).',
   });
 
   // Classifiers, smoothing, and word builder
@@ -97,7 +94,7 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
     temporalBufferRef.current.updateConfig(settings.stabilityFrames, settings.confidenceThreshold);
   }, [settings.stabilityFrames, settings.confidenceThreshold]);
 
-  // Check AI backend status on mount
+  // Check assistant status on mount
   const checkAI = useCallback(async () => {
     const status = await fetchAIStatus();
     setAiStatus(status);
@@ -106,25 +103,6 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
   useEffect(() => {
     checkAI();
   }, [checkAI]);
-
-  const handleSaveApiKey = async () => {
-    if (!apiKeyInput.trim()) {
-      showToast('Please enter an API key', 'warning');
-      return;
-    }
-    setIsSavingKey(true);
-    try {
-      const nextStatus = await saveAIKey(apiProviderSelect, apiKeyInput.trim());
-      setAiStatus(nextStatus);
-      setApiKeyInput('');
-      showToast(`Connected to ${nextStatus.provider}!`, 'success');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to save key';
-      showToast(msg, 'warning');
-    } finally {
-      setIsSavingKey(false);
-    }
-  };
 
   // Camera hook
   const {
@@ -169,7 +147,7 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
       }
 
       if (settings.recognitionMode === 'isl-fingerspelling' || settings.recognitionMode === 'isl-numbers') {
-        // ── Word & Digits building mode with Hold-to-Confirm ──
+        // Word & Digits building mode with Hold-to-Confirm
         const candidate = rawPrediction ? rawPrediction.label : null;
         const wbStatus = wordBuilderRef.current.push(candidate, handPresent);
 
@@ -193,7 +171,7 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
           setActiveConfidence(null);
         }
       } else {
-        // ── Conversational Whole Phrases / Demo Mode ──
+        // Conversational Whole Phrases / Demo Mode
         setHoldProgress(0);
         setHoldLetter(null);
         const smoothed = temporalBufferRef.current.push(rawPrediction);
@@ -253,23 +231,28 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
   };
 
   /**
-   * Submit a user message to the AI chatbot and handle response streaming/state.
+   * Submit a user message to the assistant and handle response.
    */
   const triggerAiConversation = useCallback(
     async (userMessageText: string, updatedSessionWithUser: ConversationSession) => {
+      const cleanUserText = normalizeMessageText(userMessageText);
+      if (!cleanUserText) return;
+
       setIsAiGenerating(true);
       setAiError(null);
 
       try {
         const aiResponse = await sendChatMessage(
-          userMessageText,
+          cleanUserText,
           updatedSessionWithUser.messages
         );
+
+        const safeReply = normalizeMessageText(aiResponse?.reply || aiResponse);
 
         const aiMessage: Message = {
           id: Math.random().toString(36).substring(2, 9),
           sender: 'assistant',
-          text: aiResponse.reply,
+          text: safeReply,
           timestamp: Date.now(),
           status: 'confirmed',
         };
@@ -287,10 +270,10 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
         }
 
         if (settings.speechEnabled) {
-          speak(aiResponse.reply);
+          speak(safeReply);
         }
       } catch (err: unknown) {
-        const errorMsg = err instanceof Error ? err.message : 'Failed to get AI response';
+        const errorMsg = normalizeMessageText(err instanceof Error ? err.message : err);
         setAiError(errorMsg);
         showToast(errorMsg, 'warning');
       } finally {
@@ -304,12 +287,13 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
    * Signer confirms recognized gesture text from the left panel composer.
    */
   const handleConfirmSendSigner = (text: string) => {
-    if (!text.trim() || isAiGenerating) return;
+    const clean = normalizeMessageText(text);
+    if (!clean || isAiGenerating) return;
 
     const userMessage: Message = {
       id: Math.random().toString(36).substring(2, 9),
       sender: 'signer',
-      text: text.trim(),
+      text: clean,
       timestamp: Date.now(),
       status: 'confirmed',
     };
@@ -318,7 +302,7 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
       ...currentSession,
       updatedAt: Date.now(),
       messages: [...currentSession.messages, userMessage],
-      title: currentSession.title || text.trim().substring(0, 30),
+      title: currentSession.title || clean.substring(0, 30),
     };
 
     setCurrentSession(updatedSession);
@@ -333,21 +317,22 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
     if (settings.saveTranscripts) {
       saveSession(updatedSession);
     }
-    showToast('Signer message sent to AI', 'success');
+    showToast('Signer message sent', 'success');
 
-    triggerAiConversation(text.trim(), updatedSession);
+    triggerAiConversation(clean, updatedSession);
   };
 
   /**
    * User sends a typed or quick-reply message from the right panel composer.
    */
   const handleUserSendMessage = (text: string) => {
-    if (!text.trim() || isAiGenerating) return;
+    const clean = normalizeMessageText(text);
+    if (!clean || isAiGenerating) return;
 
     const userMessage: Message = {
       id: Math.random().toString(36).substring(2, 9),
       sender: 'signer',
-      text: text.trim(),
+      text: clean,
       timestamp: Date.now(),
       status: 'confirmed',
     };
@@ -356,7 +341,7 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
       ...currentSession,
       updatedAt: Date.now(),
       messages: [...currentSession.messages, userMessage],
-      title: currentSession.title || text.trim().substring(0, 30),
+      title: currentSession.title || clean.substring(0, 30),
     };
 
     setCurrentSession(updatedSession);
@@ -365,15 +350,16 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
       saveSession(updatedSession);
     }
 
-    triggerAiConversation(text.trim(), updatedSession);
+    triggerAiConversation(clean, updatedSession);
   };
 
   /**
    * Edit existing message in current session history.
    */
   const handleEditMessage = (id: string, newText: string) => {
+    const clean = normalizeMessageText(newText);
     const updatedMessages = currentSession.messages.map(m =>
-      m.id === id ? { ...m, text: newText, editedAt: Date.now() } : m
+      m.id === id ? { ...m, text: clean, editedAt: Date.now() } : m
     );
 
     const updatedSession = {
@@ -408,10 +394,11 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
   };
 
   /**
-   * Retry AI generation for a given prompt.
+   * Retry generation for a given prompt.
    */
   const handleRetryAi = (promptText: string) => {
-    triggerAiConversation(promptText, currentSession);
+    const clean = normalizeMessageText(promptText);
+    triggerAiConversation(clean, currentSession);
   };
 
   const handleTriggerDemoSign = (sign: string) => {
@@ -428,7 +415,7 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
       return;
     }
     const transcript = currentSession.messages
-      .map(m => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.sender === 'signer' ? 'Signer' : 'AI Assistant'}: ${m.text}`)
+      .map(m => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.sender === 'signer' ? 'Signer' : 'Assistant'}: ${normalizeMessageText(m.text)}`)
       .join('\n');
     copyToClipboard(transcript);
     showToast('Transcript copied to clipboard', 'success');
@@ -441,7 +428,7 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
     }
     const transcript = `SignBridge Conversation Transcript\nSession ID: ${currentSession.id}\nCreated: ${new Date(currentSession.createdAt).toLocaleString()}\n\n` +
       currentSession.messages
-        .map(m => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.sender === 'signer' ? 'Signer' : 'AI Assistant'}: ${m.text}`)
+        .map(m => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.sender === 'signer' ? 'Signer' : 'Assistant'}: ${normalizeMessageText(m.text)}`)
         .join('\n');
     downloadTextFile(`signbridge-${currentSession.id.substring(0, 8)}.txt`, transcript);
     showToast('Transcript exported as .txt', 'success');
@@ -539,8 +526,8 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
         />
       </section>
 
-      {/* RIGHT PANEL: AI Chatbot Conversation Panel */}
-      <section className="conversation-panel" aria-label="Shared AI conversation thread and assistant response">
+      {/* RIGHT PANEL: Conversational Panel */}
+      <section className="conversation-panel" aria-label="Shared conversation thread and assistant response">
         <div className="panel-header">
           <div className="panel-title">
             <MessageSquare size={18} color="var(--terracotta)" />
@@ -551,16 +538,16 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            {/* AI Online/Offline Status Indicator */}
+            {/* Assistant Status Indicator */}
             <button
               type="button"
-              className={`ai-status-badge ${aiStatus.configured ? 'online' : 'offline'}`}
+              className="ai-status-badge online"
               onClick={() => setIsAiSetupOpen(true)}
               title={aiStatus.message}
-              aria-label={`AI Status: ${aiStatus.configured ? 'Online' : 'Offline'}`}
+              aria-label="Assistant Status: Active & Ready"
             >
               <span className="ai-status-dot" />
-              <span>{aiStatus.configured ? (aiStatus.isBuiltin ? 'AI Online (Built-in)' : `AI Online (${aiStatus.provider})`) : 'AI Offline'}</span>
+              <span>Assistant Active</span>
             </button>
 
             <button
@@ -646,32 +633,19 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
         messages={currentSession.messages}
       />
 
-      {/* AI Assistant Setup & Status Dialog */}
+      {/* Assistant Guide & Quick Topics Dialog */}
       <Dialog
         isOpen={isAiSetupOpen}
         onClose={() => setIsAiSetupOpen(false)}
-        title="SignBridge AI Assistant Status"
+        title="SignBridge Communication Assistant"
         footer={
-          <>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={async () => {
-                await checkAI();
-                showToast('Checked AI status', 'info');
-              }}
-            >
-              <RefreshCw size={14} />
-              <span>Refresh Status</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setIsAiSetupOpen(false)}
-            >
-              Close
-            </button>
-          </>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setIsAiSetupOpen(false)}
+          >
+            Close
+          </button>
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', color: 'var(--chocolate)' }}>
@@ -689,65 +663,59 @@ export const LiveWorkspace: React.FC<LiveWorkspaceProps> = ({
             <CheckCircle2 size={24} color="var(--olive)" />
             <div>
               <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-                AI Assistant is Online & Ready
+                SignBridge Assistant is Active & Ready
               </div>
               <div style={{ fontSize: '0.82rem', color: 'var(--muted-text)', marginTop: '0.15rem' }}>
-                {aiStatus.message}
+                Runs 100% locally in your browser with zero API keys or external setup required.
               </div>
             </div>
           </div>
 
           <div style={{ fontSize: '0.88rem', lineHeight: 1.5, backgroundColor: 'var(--ivory)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-            <div><strong>Active Engine:</strong> {aiStatus.provider} {aiStatus.isBuiltin ? '(Built-in Dialog Engine)' : '(External LLM)'}</div>
-            <div><strong>Model:</strong> {aiStatus.model}</div>
+            <div><strong>Engine:</strong> Built-in SignBridge Communication Knowledge Base</div>
             <p style={{ marginTop: '0.35rem', color: 'var(--brown)', fontSize: '0.82rem' }}>
-              Communicates with fingerspelled words and typed inputs in real time without restarting sessions.
+              Communicates with fingerspelled words and typed questions in real time. Perfect for counter communication and sign practice.
             </p>
           </div>
 
-          {/* Connect / Update External Provider Key */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.25rem' }}>
-            <div style={{ fontWeight: 600, fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Key size={15} color="var(--terracotta)" />
-              <span>Connect External LLM Key (Google Gemini / OpenAI):</span>
+          {/* Quick Example Questions */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ fontWeight: 600, fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <Sparkles size={14} color="var(--terracotta)" />
+              <span>Try asking these example questions:</span>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <select
-                className="reply-input"
-                style={{ flex: '0 0 140px', padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}
-                value={apiProviderSelect}
-                onChange={e => setApiProviderSelect(e.target.value as 'gemini' | 'openai')}
-                aria-label="Select AI provider"
-              >
-                <option value="gemini">Google Gemini</option>
-                <option value="openai">OpenAI</option>
-              </select>
-
-              <input
-                type="password"
-                className="reply-input"
-                style={{ flex: 1, minWidth: '180px', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}
-                placeholder={`Paste your ${apiProviderSelect === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY'} here...`}
-                value={apiKeyInput}
-                onChange={e => setApiKeyInput(e.target.value)}
-                aria-label="API Key input"
-              />
-
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
-                onClick={handleSaveApiKey}
-                disabled={!apiKeyInput.trim() || isSavingKey}
-              >
-                {isSavingKey ? 'Saving...' : 'Connect'}
-              </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {[
+                'What is SignBridge?',
+                'How do I spell a word?',
+                'What can you do?',
+                'How does sign recognition work?',
+                'Where is the fee counter?',
+              ].map(q => (
+                <button
+                  key={q}
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{
+                    textAlign: 'left',
+                    justifyContent: 'flex-start',
+                    fontSize: '0.82rem',
+                    padding: '0.4rem 0.75rem',
+                  }}
+                  onClick={() => {
+                    setIsAiSetupOpen(false);
+                    handleUserSendMessage(q);
+                  }}
+                >
+                  <span>"{q}"</span>
+                </button>
+              ))}
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--muted-text)', fontSize: '0.78rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--muted-text)', fontSize: '0.78rem', marginTop: '0.25rem' }}>
               <HelpCircle size={13} />
-              <span>Keys are saved to your local .env securely and never exposed to the browser.</span>
+              <span>Click any question to ask it directly in the conversation.</span>
             </div>
           </div>
         </div>

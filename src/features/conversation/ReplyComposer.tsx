@@ -62,11 +62,11 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       <div className="reply-composer">
         <textarea
           className="reply-input"
-          placeholder={isAiGenerating ? 'AI is responding...' : 'Type a message to the AI assistant... (Enter to send, Shift+Enter for newline)'}
+          placeholder={isAiGenerating ? 'Assistant is responding...' : 'Type a question or message to the assistant... (Enter to send, Shift+Enter for newline)'}
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          aria-label="Type message to AI assistant"
+          aria-label="Type message to assistant"
           rows={2}
           disabled={isAiGenerating}
         />
@@ -78,7 +78,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
             onClick={handleSend}
             disabled={!text.trim() || isAiGenerating}
             style={{ height: '42px', padding: '0 1.25rem' }}
-            title="Send message to AI assistant"
+            title="Send message to assistant"
           >
             {isAiGenerating ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
             <span>{isAiGenerating ? 'Sending...' : 'Send'}</span>

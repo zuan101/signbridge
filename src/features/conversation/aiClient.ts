@@ -1,14 +1,18 @@
 /**
- * SignBridge AI Chatbot Client
- * Handles communication between the frontend React application
- * and the backend AI service endpoints (/api/chat, /api/ai-status, /api/save-key).
+ * SignBridge AI Assistant Client
+ * Browser-native, offline-friendly chatbot service for SignBridge.
+ *
+ * Runs 100% in-browser on deployed Vercel static sites and local setups
+ * without requiring any API keys, environment variables, or external services.
  */
+
+import { generateBotReply, normalizeMessageText } from './signBridgeBot';
 
 export interface AIStatus {
   configured: boolean;
-  provider: string | null;
-  model: string | null;
-  isBuiltin?: boolean;
+  provider: string;
+  model: string;
+  isBuiltin: boolean;
   message: string;
 }
 
@@ -24,93 +28,42 @@ export interface ChatHistoryItem {
 }
 
 /**
- * Check backend AI configuration and model status.
+ * Check assistant availability. Always returns online with zero external setup.
  */
 export async function fetchAIStatus(): Promise<AIStatus> {
-  try {
-    const res = await fetch('/api/ai-status', {
-      headers: { 'Accept': 'application/json' },
-    });
-    if (!res.ok) {
-      return {
-        configured: true,
-        provider: 'signbridge-ai',
-        model: 'isl-dialog-v1',
-        isBuiltin: true,
-        message: 'SignBridge Built-in Assistant active',
-      };
-    }
-    return await res.json();
-  } catch (err) {
-    return {
-      configured: true,
-      provider: 'signbridge-ai',
-      model: 'isl-dialog-v1',
-      isBuiltin: true,
-      message: err instanceof Error ? err.message : 'SignBridge Built-in Assistant active',
-    };
-  }
+  return {
+    configured: true,
+    provider: 'SignBridge Assistant',
+    model: 'Built-in Knowledge Engine',
+    isBuiltin: true,
+    message: 'SignBridge Assistant is active and ready (no API key required).',
+  };
 }
 
 /**
- * Send recognized ISL sign message or typed input to the AI assistant.
+ * Send recognized ISL sign message or typed input to the assistant.
+ * Normalizes input safely and returns deterministic responses directly in the browser.
  */
 export async function sendChatMessage(
-  message: string,
-  history: ChatHistoryItem[] = []
+  message: unknown,
+  _history: ChatHistoryItem[] = []
 ): Promise<AIChatResponse> {
-  const cleanMessage = message.trim();
+  const cleanMessage = normalizeMessageText(message);
   if (!cleanMessage) {
     throw new Error('Message cannot be empty');
   }
 
-  const response = await fetch('/api/chat', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify({
-      message: cleanMessage,
-      history: history.map(h => ({
-        sender: h.sender,
-        text: h.text,
-      })),
-    }),
-  });
+  // Realistic human-readable response delay (200ms) for typing indicator
+  await new Promise(resolve => setTimeout(resolve, 200));
 
-  const data = await response.json().catch(() => ({}));
+  const response = generateBotReply(cleanMessage);
 
-  if (!response.ok) {
-    const errorMessage = data?.error || `AI request failed with status ${response.status}`;
-    const error = new Error(errorMessage);
-    // @ts-expect-error - attach custom code
-    error.code = data?.code || 'AI_REQUEST_FAILED';
-    // @ts-expect-error - attach status
-    error.status = response.status;
-    throw error;
-  }
-
-  return data as AIChatResponse;
+  return {
+    reply: normalizeMessageText(response.reply),
+    provider: 'SignBridge Assistant',
+    model: 'Built-in Knowledge Engine',
+  };
 }
 
-/**
- * Save an API key from the UI directly to the backend.
- */
-export async function saveAIKey(provider: 'gemini' | 'openai', apiKey: string, model?: string): Promise<AIStatus> {
-  const res = await fetch('/api/save-key', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify({ provider, apiKey, model }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || 'Failed to save API key');
-  }
-
-  return data.status as AIStatus;
-}
+// Re-export normalizer for all components to use safely
+export { normalizeMessageText };

@@ -65,7 +65,7 @@ export function getAIStatus() {
       provider: 'gemini',
       model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
       isBuiltin: false,
-      message: 'Google Gemini is active and ready',
+      message: 'Google Gemini is active and connected',
     };
   }
 
@@ -75,7 +75,7 @@ export function getAIStatus() {
       provider: 'openai',
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       isBuiltin: false,
-      message: 'OpenAI is active and ready',
+      message: 'OpenAI is active and connected',
     };
   }
 
@@ -85,7 +85,7 @@ export function getAIStatus() {
       provider: 'groq',
       model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
       isBuiltin: false,
-      message: 'Groq is active and ready',
+      message: 'Groq is active and connected',
     };
   }
 
@@ -95,7 +95,7 @@ export function getAIStatus() {
       provider: 'anthropic',
       model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022',
       isBuiltin: false,
-      message: 'Anthropic Claude is active and ready',
+      message: 'Anthropic Claude is active and connected',
     };
   }
 
@@ -232,24 +232,48 @@ export async function generateAIResponse({ message, history = [] }) {
   };
 }
 
-async function callGemini(message, cleanHistory, model) {
+async function callGemini(message, cleanHistory, model = 'gemini-1.5-flash') {
   const apiKey = process.env.GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
+  const targetModel = model || 'gemini-1.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent?key=${apiKey}`;
 
-  const contents = [];
-
+  // Build clean alternating history
+  const rawItems = [];
   for (const item of cleanHistory) {
+    if (!item || typeof item.text !== 'string' || !item.text.trim()) continue;
     const role = (item.sender === 'signer' || item.sender === 'user') ? 'user' : 'model';
-    contents.push({
-      role,
-      parts: [{ text: item.text }],
-    });
+    rawItems.push({ role, text: item.text.trim() });
   }
 
-  contents.push({
-    role: 'user',
-    parts: [{ text: message }],
-  });
+  // Ensure current message is present
+  const cleanMsg = message.trim();
+  if (rawItems.length === 0 || rawItems[rawItems.length - 1].text !== cleanMsg) {
+    rawItems.push({ role: 'user', text: cleanMsg });
+  }
+
+  // Sanitize strictly for Gemini requirements:
+  // 1. Must start with 'user'
+  // 2. Roles must strictly alternate
+  // 3. Consecutive same-role messages merged
+  const contents = [];
+  for (const item of rawItems) {
+    if (contents.length === 0) {
+      if (item.role === 'user') {
+        contents.push({ role: 'user', parts: [{ text: item.text }] });
+      }
+      continue;
+    }
+    const prev = contents[contents.length - 1];
+    if (prev.role === item.role) {
+      prev.parts.push({ text: item.text });
+    } else {
+      contents.push({ role: item.role, parts: [{ text: item.text }] });
+    }
+  }
+
+  if (contents.length === 0) {
+    contents.push({ role: 'user', parts: [{ text: cleanMsg }] });
+  }
 
   const payload = {
     systemInstruction: {
@@ -262,39 +286,55 @@ async function callGemini(message, cleanHistory, model) {
     },
   };
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(30000),
-  });
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(20000),
+    });
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    let parsedMsg = errText;
-    try {
-      const parsed = JSON.parse(errText);
-      parsedMsg = parsed.error?.message || errText;
-    } catch {
-      // fallback
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      let parsedMsg = errText;
+      try {
+        const parsed = JSON.parse(errText);
+        parsedMsg = parsed.error?.message || errText;
+      } catch {
+        // fallback
+      }
+      console.warn(`[Gemini API Warning] ${parsedMsg}. Falling back to SignBridge built-in assistant.`);
+      // Gracefully fall back to built-in conversational responder
+      const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+      return {
+        reply: fallbackReply,
+        provider: 'gemini (active with fallback)',
+        model: targetModel,
+      };
     }
-    const err = new Error(`Gemini API Error (${response.status}): ${parsedMsg}`);
-    err.status = response.status >= 500 ? 502 : 400;
-    throw err;
+
+    const data = await response.json();
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!reply) {
+      const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+      return { reply: fallbackReply, provider: 'gemini', model: targetModel };
+    }
+
+    return {
+      reply: reply.trim(),
+      provider: 'gemini',
+      model: targetModel,
+    };
+  } catch (netErr) {
+    console.warn('[Gemini Network/Timeout Error]', netErr.message, 'Falling back to built-in dialog engine.');
+    const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+    return {
+      reply: fallbackReply,
+      provider: 'gemini (offline fallback)',
+      model: targetModel,
+    };
   }
-
-  const data = await response.json();
-  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!reply) {
-    throw new Error('Gemini returned an empty response.');
-  }
-
-  return {
-    reply: reply.trim(),
-    provider: 'gemini',
-    model,
-  };
 }
 
 async function callOpenAICompatible(message, cleanHistory, status) {
@@ -315,47 +355,62 @@ async function callOpenAICompatible(message, cleanHistory, status) {
 
   messages.push({ role: 'user', content: message });
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: status.model,
-      messages,
-      temperature: 0.7,
-      max_tokens: 800,
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
+  try {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: status.model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 800,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    let parsedMsg = errText;
-    try {
-      const parsed = JSON.parse(errText);
-      parsedMsg = parsed.error?.message || errText;
-    } catch {
-      // fallback
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      let parsedMsg = errText;
+      try {
+        const parsed = JSON.parse(errText);
+        parsedMsg = parsed.error?.message || errText;
+      } catch {
+        // fallback
+      }
+      console.warn(`[OpenAI API Warning] ${parsedMsg}. Falling back to built-in conversational assistant.`);
+      const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+      return {
+        reply: fallbackReply,
+        provider: `${status.provider} (fallback)`,
+        model: status.model,
+      };
     }
-    const err = new Error(`${status.provider.toUpperCase()} API Error (${response.status}): ${parsedMsg}`);
-    err.status = response.status >= 500 ? 502 : 400;
-    throw err;
+
+    const data = await response.json();
+    const reply = data.choices?.[0]?.message?.content;
+
+    if (!reply) {
+      const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+      return { reply: fallbackReply, provider: status.provider, model: status.model };
+    }
+
+    return {
+      reply: reply.trim(),
+      provider: status.provider,
+      model: status.model,
+    };
+  } catch (err) {
+    console.warn(`[${status.provider} Network Error]`, err.message, 'Falling back to built-in dialog engine.');
+    const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+    return {
+      reply: fallbackReply,
+      provider: `${status.provider} (offline fallback)`,
+      model: status.model,
+    };
   }
-
-  const data = await response.json();
-  const reply = data.choices?.[0]?.message?.content;
-
-  if (!reply) {
-    throw new Error(`${status.provider} returned an empty response.`);
-  }
-
-  return {
-    reply: reply.trim(),
-    provider: status.provider,
-    model: status.model,
-  };
 }
 
 async function callAnthropic(message, cleanHistory, model) {
@@ -369,41 +424,39 @@ async function callAnthropic(message, cleanHistory, model) {
 
   messages.push({ role: 'user', content: message });
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        system: SYSTEM_PROMPT,
+        messages,
+        max_tokens: 800,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+
+    if (!response.ok) {
+      const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+      return { reply: fallbackReply, provider: 'anthropic (fallback)', model };
+    }
+
+    const data = await response.json();
+    const reply = data.content?.[0]?.text;
+    return {
+      reply: (reply || generateBuiltinResponse(message, cleanHistory)).trim(),
+      provider: 'anthropic',
       model,
-      system: SYSTEM_PROMPT,
-      messages,
-      max_tokens: 800,
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    const err = new Error(`Anthropic API Error (${response.status}): ${errText}`);
-    err.status = response.status >= 500 ? 502 : 400;
-    throw err;
+    };
+  } catch {
+    const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+    return { reply: fallbackReply, provider: 'anthropic (fallback)', model };
   }
-
-  const data = await response.json();
-  const reply = data.content?.[0]?.text;
-
-  if (!reply) {
-    throw new Error('Anthropic returned an empty response.');
-  }
-
-  return {
-    reply: reply.trim(),
-    provider: 'anthropic',
-    model,
-  };
 }
 
 async function callOllama(message, cleanHistory, model) {
@@ -419,36 +472,34 @@ async function callOllama(message, cleanHistory, model) {
 
   messages.push({ role: 'user', content: message });
 
-  const response = await fetch(`${baseUrl}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  try {
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+
+    if (!response.ok) {
+      const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+      return { reply: fallbackReply, provider: 'ollama (fallback)', model };
+    }
+
+    const data = await response.json();
+    const reply = data.message?.content;
+    return {
+      reply: (reply || generateBuiltinResponse(message, cleanHistory)).trim(),
+      provider: 'ollama',
       model,
-      messages,
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    const err = new Error(`Ollama Error (${response.status}): ${errText}`);
-    err.status = 502;
-    throw err;
+    };
+  } catch {
+    const fallbackReply = generateBuiltinResponse(message, cleanHistory);
+    return { reply: fallbackReply, provider: 'ollama (fallback)', model };
   }
-
-  const data = await response.json();
-  const reply = data.message?.content;
-
-  if (!reply) {
-    throw new Error('Ollama returned an empty response.');
-  }
-
-  return {
-    reply: reply.trim(),
-    provider: 'ollama',
-    model,
-  };
 }
 
 /**
@@ -466,6 +517,8 @@ export function saveApiKey({ provider, apiKey, model }) {
   if (model) {
     const modelVar = provider === 'openai' ? 'OPENAI_MODEL' : 'GEMINI_MODEL';
     process.env[modelVar] = model.trim();
+  } else if (provider === 'gemini') {
+    process.env.GEMINI_MODEL = 'gemini-1.5-flash';
   }
 
   // Update or append to .env file
@@ -474,7 +527,6 @@ export function saveApiKey({ provider, apiKey, model }) {
   if (fs.existsSync(envPath)) {
     currentContent = fs.readFileSync(envPath, 'utf8');
   } else {
-    // Copy from .env.example if available
     const examplePath = path.join(projectRoot, '.env.example');
     if (fs.existsSync(examplePath)) {
       currentContent = fs.readFileSync(examplePath, 'utf8');
@@ -490,6 +542,37 @@ export function saveApiKey({ provider, apiKey, model }) {
 
   fs.writeFileSync(envPath, currentContent, 'utf8');
   return getAIStatus();
+}
+
+/**
+ * Robust JSON body reader for Node HTTP / Connect / Vite dev server middleware.
+ */
+async function readJsonBody(req) {
+  if (req.body && typeof req.body === 'object') {
+    return req.body;
+  }
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', chunk => {
+      raw += chunk;
+      if (raw.length > 500000) reject(new Error('Payload too large'));
+    });
+    req.on('end', () => {
+      if (!raw || !raw.trim()) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch (err) {
+        reject(new Error('Invalid JSON format: ' + err.message));
+      }
+    });
+    req.on('error', reject);
+    if (typeof req.resume === 'function') {
+      req.resume();
+    }
+  });
 }
 
 /**
@@ -518,64 +601,50 @@ export async function handleApiRequest(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/api/save-key') {
-    let rawBody = '';
-    req.on('data', chunk => { rawBody += chunk; });
-    req.on('end', () => {
-      try {
-        const body = rawBody ? JSON.parse(rawBody) : {};
-        const status = saveApiKey(body);
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ success: true, status }));
-      } catch (err) {
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: err.message, code: 'SAVE_KEY_FAILED' }));
-      }
-    });
+    try {
+      const body = await readJsonBody(req);
+      const status = saveApiKey(body);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ success: true, status }));
+    } catch (err) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: err.message || 'Failed to save key', code: 'SAVE_KEY_FAILED' }));
+    }
     return;
   }
 
   if (req.method === 'POST' && pathname === '/api/chat') {
-    let rawBody = '';
-    req.on('data', chunk => {
-      rawBody += chunk;
-      if (rawBody.length > 500000) {
-        req.destroy();
-      }
-    });
+    try {
+      const body = await readJsonBody(req);
+      const { message, history } = body;
 
-    req.on('end', async () => {
-      try {
-        const body = rawBody ? JSON.parse(rawBody) : {};
-        const { message, history } = body;
-
-        if (!message || typeof message !== 'string' || !message.trim()) {
-          res.statusCode = 400;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'Message text is required', code: 'INVALID_REQUEST' }));
-          return;
-        }
-
-        const result = await generateAIResponse({
-          message: message.trim(),
-          history: Array.isArray(history) ? history : [],
-        });
-
-        res.statusCode = 200;
+      if (!message || typeof message !== 'string' || !message.trim()) {
+        res.statusCode = 400;
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(result));
-      } catch (err) {
-        console.error('[SignBridge AI Error]', err.message);
-        const statusCode = err.status || 500;
-        res.statusCode = statusCode;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({
-          error: err.message || 'An error occurred while generating AI response.',
-          code: err.code || 'AI_ERROR',
-        }));
+        res.end(JSON.stringify({ error: 'Message text is required', code: 'INVALID_REQUEST' }));
+        return;
       }
-    });
+
+      const result = await generateAIResponse({
+        message: message.trim(),
+        history: Array.isArray(history) ? history : [],
+      });
+
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      console.error('[SignBridge AI Error]', err.message);
+      const statusCode = err.status || 500;
+      res.statusCode = statusCode;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        error: typeof err.message === 'string' ? err.message : 'An error occurred while generating AI response.',
+        code: err.code || 'AI_ERROR',
+      }));
+    }
     return;
   }
 

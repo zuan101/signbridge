@@ -3,48 +3,98 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MessageList } from '../features/conversation/MessageList';
 import { ReplyComposer } from '../features/conversation/ReplyComposer';
 import { fetchAIStatus, sendChatMessage } from '../features/conversation/aiClient';
+import { generateBotReply, normalizeMessageText } from '../features/conversation/signBridgeBot';
 import type { Message } from '../features/conversation/types';
 
-describe('aiClient (Frontend Service)', () => {
-  it('calls /api/ai-status and returns status', async () => {
-    const mockStatus = {
-      configured: true,
-      provider: 'gemini',
-      model: 'gemini-2.0-flash',
-      message: 'Google Gemini is active and ready',
-    };
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockStatus,
-    }) as unknown as typeof fetch;
-
-    const status = await fetchAIStatus();
-    expect(status.configured).toBe(true);
-    expect(status.provider).toBe('gemini');
-
-    globalThis.fetch = originalFetch;
+describe('normalizeMessageText (No [object Object] Guarantees)', () => {
+  it('returns clean string unchanged', () => {
+    expect(normalizeMessageText('Hello world')).toBe('Hello world');
   });
 
-  it('calls /api/chat and returns reply', async () => {
-    const mockReply = {
-      reply: 'Hello! I can understand your ISL gestures.',
-      provider: 'gemini',
-      model: 'gemini-2.0-flash',
-    };
+  it('extracts string from { text: "..." }', () => {
+    expect(normalizeMessageText({ text: 'Extracted text' })).toBe('Extracted text');
+  });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockReply,
-    }) as unknown as typeof fetch;
+  it('extracts string from { message: "..." }', () => {
+    expect(normalizeMessageText({ message: 'Extracted message' })).toBe('Extracted message');
+  });
 
-    const res = await sendChatMessage('HELLO', []);
-    expect(res.reply).toBe('Hello! I can understand your ISL gestures.');
-    expect(res.provider).toBe('gemini');
+  it('extracts string from { response: "..." }', () => {
+    expect(normalizeMessageText({ response: 'Extracted response' })).toBe('Extracted response');
+  });
 
-    globalThis.fetch = originalFetch;
+  it('extracts string from { reply: "..." }', () => {
+    expect(normalizeMessageText({ reply: 'Extracted reply' })).toBe('Extracted reply');
+  });
+
+  it('extracts string from { error: { message: "..." } }', () => {
+    expect(normalizeMessageText({ error: { message: 'Nested error message' } })).toBe('Nested error message');
+  });
+
+  it('safely handles null and undefined', () => {
+    expect(normalizeMessageText(null)).toBe('');
+    expect(normalizeMessageText(undefined)).toBe('');
+  });
+
+  it('never outputs [object Object]', () => {
+    const complexObj = { someUnknownProp: 12345 };
+    const res = normalizeMessageText(complexObj);
+    expect(res).not.toBe('[object Object]');
+    expect(res).not.toContain('[object Object]');
+  });
+});
+
+describe('SignBridge Deterministic Knowledge Base (signBridgeBot.ts)', () => {
+  it('responds accurately to "Hello"', () => {
+    const res = generateBotReply('Hello');
+    expect(res.reply).toBe('Hello! 👋 Welcome to SignBridge. How can I help you communicate today?');
+  });
+
+  it('responds accurately to "What is SignBridge?"', () => {
+    const res = generateBotReply('What is SignBridge?');
+    expect(res.reply).toContain('SignBridge helps bridge communication gaps');
+  });
+
+  it('responds accurately to "How do I spell a word?"', () => {
+    const res = generateBotReply('How do I spell a word?');
+    expect(res.reply).toContain('Open the Letters section and perform the supported signs');
+  });
+
+  it('responds accurately to "What can you do?"', () => {
+    const res = generateBotReply('What can you do?');
+    expect(res.reply).toBe('I can explain how SignBridge works, help you navigate its features, and answer common questions about sign-language communication.');
+  });
+
+  it('responds accurately to "Thank you"', () => {
+    const res = generateBotReply('Thank you');
+    expect(res.reply).toBe("You're welcome! 😊 I'm happy to help.");
+  });
+
+  it('provides helpful fallback with example questions for unknown input without crashing', () => {
+    const res = generateBotReply('xyz123 random query unknown');
+    expect(res.matchedIntent).toBe('fallback');
+    expect(res.reply).toContain("What is SignBridge?");
+    expect(res.reply).toContain("How do I spell a word?");
+  });
+
+  it('handles empty input gracefully', () => {
+    const res = generateBotReply('   ');
+    expect(res.matchedIntent).toBe('empty');
+  });
+});
+
+describe('aiClient (Browser-Native Service)', () => {
+  it('reports online status with zero external keys', async () => {
+    const status = await fetchAIStatus();
+    expect(status.configured).toBe(true);
+    expect(status.isBuiltin).toBe(true);
+    expect(status.provider).toBe('SignBridge Assistant');
+  });
+
+  it('processes chat messages locally and returns replies', async () => {
+    const res = await sendChatMessage('What can you do?');
+    expect(res.reply).toContain('I can explain how SignBridge works');
+    expect(res.provider).toBe('SignBridge Assistant');
   });
 
   it('throws error when message is empty', async () => {
@@ -53,10 +103,10 @@ describe('aiClient (Frontend Service)', () => {
 });
 
 describe('Upgraded MessageList (AI Chatbot UI)', () => {
-  it('renders AI assistant messages with Sparkles badge and distinct sender tag', () => {
+  it('renders assistant messages with distinct tag and safe text', () => {
     const sampleMessages: Message[] = [
       { id: '1', sender: 'signer', text: 'HELLO', timestamp: Date.now() },
-      { id: '2', sender: 'assistant', text: 'Hello! Welcome to SignBridge. How can I assist you today?', timestamp: Date.now() + 500 },
+      { id: '2', sender: 'assistant', text: 'Hello! 👋 Welcome to SignBridge. How can I help you communicate today?', timestamp: Date.now() + 500 },
     ];
 
     render(
@@ -68,9 +118,27 @@ describe('Upgraded MessageList (AI Chatbot UI)', () => {
     );
 
     expect(screen.getByText('HELLO')).toBeInTheDocument();
-    expect(screen.getByText('Hello! Welcome to SignBridge. How can I assist you today?')).toBeInTheDocument();
-    expect(screen.getByText('SignBridge AI')).toBeInTheDocument();
+    expect(screen.getByText('Hello! 👋 Welcome to SignBridge. How can I help you communicate today?')).toBeInTheDocument();
+    expect(screen.getByText('SignBridge Assistant')).toBeInTheDocument();
     expect(screen.getByText('Signer (Student / Visitor)')).toBeInTheDocument();
+  });
+
+  it('safely normalizes any object passed as message text without rendering [object Object]', () => {
+    const malformedMessages: Message[] = [
+      // @ts-expect-error - testing unexpected object
+      { id: '1', sender: 'assistant', text: { message: 'Safely extracted text' }, timestamp: Date.now() },
+    ];
+
+    render(
+      <MessageList
+        messages={malformedMessages}
+        onSpeakMessage={vi.fn()}
+        isSpeaking={false}
+      />
+    );
+
+    expect(screen.getByText('Safely extracted text')).toBeInTheDocument();
+    expect(screen.queryByText(/\[object Object\]/)).toBeNull();
   });
 
   it('renders typing indicator when isAiGenerating is true', () => {
@@ -83,27 +151,8 @@ describe('Upgraded MessageList (AI Chatbot UI)', () => {
       />
     );
 
-    expect(screen.getByText('Thinking...')).toBeInTheDocument();
-    expect(screen.getByLabelText('AI is generating a response')).toBeInTheDocument();
-  });
-
-  it('renders error alert with retry button when aiError is provided', () => {
-    const onRetry = vi.fn();
-    render(
-      <MessageList
-        messages={[{ id: '1', sender: 'signer', text: 'Help please', timestamp: Date.now() }]}
-        onSpeakMessage={vi.fn()}
-        isSpeaking={false}
-        aiError="AI service unavailable"
-        onRetryMessage={onRetry}
-      />
-    );
-
-    expect(screen.getByText(/AI service unavailable/i)).toBeInTheDocument();
-    const retryBtn = screen.getByRole('button', { name: /retry question/i });
-    expect(retryBtn).toBeInTheDocument();
-    fireEvent.click(retryBtn);
-    expect(onRetry).toHaveBeenCalledWith('Help please');
+    expect(screen.getByText('Responding...')).toBeInTheDocument();
+    expect(screen.getByLabelText('Assistant is responding')).toBeInTheDocument();
   });
 
   it('supports editing an existing message in session history', () => {
@@ -168,12 +217,12 @@ describe('Upgraded ReplyComposer', () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(/type a message to the ai assistant/i);
-    fireEvent.change(input, { target: { value: 'Hello AI' } });
+    const input = screen.getByPlaceholderText(/type a question or message to the assistant/i);
+    fireEvent.change(input, { target: { value: 'Hello' } });
 
     // Enter press sends
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
-    expect(onSend).toHaveBeenCalledWith('Hello AI');
+    expect(onSend).toHaveBeenCalledWith('Hello');
 
     // Quick reply sends
     const quickReplyBtn = screen.getByRole('button', { name: 'Namaste' });
@@ -181,7 +230,7 @@ describe('Upgraded ReplyComposer', () => {
     expect(onSend).toHaveBeenCalledWith('Namaste');
   });
 
-  it('disables input while AI is generating to prevent duplicate requests', () => {
+  it('disables input while generating to prevent duplicate requests', () => {
     render(
       <ReplyComposer
         onSendReply={vi.fn()}
@@ -192,10 +241,10 @@ describe('Upgraded ReplyComposer', () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(/ai is responding/i);
+    const input = screen.getByPlaceholderText(/assistant is responding/i);
     expect(input).toBeDisabled();
 
-    const sendBtn = screen.getByRole('button', { name: /sending\.\.\./i });
+    const sendBtn = screen.getByRole('button', { name: /sending/i });
     expect(sendBtn).toBeDisabled();
   });
 });

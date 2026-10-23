@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { formatTime } from '../../lib/time';
 import { copyToClipboard } from '../../lib/clipboard';
+import { normalizeMessageText } from './signBridgeBot';
 
 interface MessageListProps {
   messages: Message[];
@@ -49,7 +50,7 @@ export const MessageList: React.FC<MessageListProps> = ({
 
   const handleStartEdit = (msg: Message) => {
     setEditingId(msg.id);
-    setEditText(msg.text);
+    setEditText(normalizeMessageText(msg.text));
   };
 
   const handleCancelEdit = () => {
@@ -58,14 +59,16 @@ export const MessageList: React.FC<MessageListProps> = ({
   };
 
   const handleSaveEdit = (id: string) => {
-    if (!editText.trim()) return;
-    onEditMessage?.(id, editText.trim());
+    const clean = normalizeMessageText(editText);
+    if (!clean) return;
+    onEditMessage?.(id, clean);
     setEditingId(null);
     setEditText('');
   };
 
   const handleCopy = (msg: Message) => {
-    copyToClipboard(msg.text);
+    const textToCopy = normalizeMessageText(msg.text);
+    copyToClipboard(textToCopy);
     setCopiedId(msg.id);
     setTimeout(() => {
       setCopiedId(prev => (prev === msg.id ? null : prev));
@@ -105,13 +108,13 @@ export const MessageList: React.FC<MessageListProps> = ({
         </h3>
         <p style={{ maxWidth: '360px', fontSize: '0.88rem', marginTop: '0.4rem', lineHeight: 1.5 }}>
           Sign in front of the camera on the left to compose ISL letters and words, or type a message below.
-          The AI assistant will understand and respond in real time.
+          The assistant will respond in real time.
         </p>
       </div>
     );
   }
 
-  // Get the last user message to support retry if error occurs
+  // Get the last user message to support retry if needed
   const lastUserMessage = [...messages].reverse().find(m => m.sender === 'signer')?.text;
 
   return (
@@ -121,8 +124,9 @@ export const MessageList: React.FC<MessageListProps> = ({
         const isAssistant = msg.sender === 'assistant';
         const isEditing = editingId === msg.id;
 
-        // Visual distinction: Signer/User on the right, AI/Desk on the left
+        // Visual distinction: Signer/User on the right, Assistant/Desk on the left
         const bubbleClass = isSigner ? 'signer' : 'reply';
+        const safeText = normalizeMessageText(msg.text);
 
         return (
           <div
@@ -140,7 +144,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                 ) : isAssistant ? (
                   <>
                     <Sparkles size={13} color="var(--terracotta)" />
-                    <span style={{ fontWeight: 700, color: 'var(--chocolate)' }}>SignBridge AI</span>
+                    <span style={{ fontWeight: 700, color: 'var(--chocolate)' }}>SignBridge Assistant</span>
                   </>
                 ) : (
                   <>
@@ -193,7 +197,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="message-text">{msg.text}</div>
+              <div className="message-text">{safeText}</div>
             )}
 
             <div className="message-footer">
@@ -203,7 +207,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                 style={{ padding: '0.2rem', color: 'var(--brown)' }}
                 onClick={() => handleCopy(msg)}
                 title="Copy message"
-                aria-label={`Copy message: ${msg.text.substring(0, 20)}`}
+                aria-label={`Copy message: ${safeText.substring(0, 20)}`}
               >
                 {copiedId === msg.id ? <Check size={13} color="var(--olive)" /> : <Copy size={13} />}
               </button>
@@ -212,9 +216,9 @@ export const MessageList: React.FC<MessageListProps> = ({
                 type="button"
                 className="btn btn-ghost btn-icon"
                 style={{ padding: '0.2rem', color: 'var(--brown)' }}
-                onClick={() => onSpeakMessage(msg.text)}
+                onClick={() => onSpeakMessage(safeText)}
                 title="Speak message aloud"
-                aria-label={`Speak message: ${msg.text.substring(0, 20)}`}
+                aria-label={`Speak message: ${safeText.substring(0, 20)}`}
               >
                 <Volume2 size={14} />
               </button>
@@ -226,7 +230,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                   style={{ padding: '0.2rem', color: 'var(--brown)' }}
                   onClick={() => handleStartEdit(msg)}
                   title="Edit message"
-                  aria-label={`Edit message: ${msg.text.substring(0, 20)}`}
+                  aria-label={`Edit message: ${safeText.substring(0, 20)}`}
                 >
                   <Pencil size={13} />
                 </button>
@@ -239,7 +243,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                   style={{ padding: '0.2rem', color: 'var(--brick)' }}
                   onClick={() => onDeleteMessage(msg.id)}
                   title="Delete message"
-                  aria-label={`Delete message: ${msg.text.substring(0, 20)}`}
+                  aria-label={`Delete message: ${safeText.substring(0, 20)}`}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -249,17 +253,17 @@ export const MessageList: React.FC<MessageListProps> = ({
         );
       })}
 
-      {/* AI Assistant Typing Indicator */}
+      {/* Assistant Typing Indicator */}
       {isAiGenerating && (
         <div className="message-bubble reply ai-typing-bubble" aria-live="polite">
           <div className="message-header">
             <span className="message-sender-tag">
               <Sparkles size={13} color="var(--terracotta)" />
-              <span style={{ fontWeight: 700, color: 'var(--chocolate)' }}>SignBridge AI</span>
+              <span style={{ fontWeight: 700, color: 'var(--chocolate)' }}>SignBridge Assistant</span>
             </span>
-            <span style={{ fontSize: '0.72rem', color: 'var(--muted-text)' }}>Thinking...</span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted-text)' }}>Responding...</span>
           </div>
-          <div className="typing-indicator" aria-label="AI is generating a response">
+          <div className="typing-indicator" aria-label="Assistant is responding">
             <span className="typing-dot" />
             <span className="typing-dot" />
             <span className="typing-dot" />
@@ -267,13 +271,13 @@ export const MessageList: React.FC<MessageListProps> = ({
         </div>
       )}
 
-      {/* AI Error Alert / Retry */}
+      {/* Fallback Notice */}
       {aiError && (
         <div
           className="ai-error-box"
           style={{
-            backgroundColor: 'rgba(166, 58, 36, 0.08)',
-            border: '1.5px solid var(--brick)',
+            backgroundColor: 'rgba(238, 220, 197, 0.4)',
+            border: '1.5px solid var(--border)',
             borderRadius: 'var(--radius-md)',
             padding: '0.75rem 1rem',
             display: 'flex',
@@ -285,9 +289,9 @@ export const MessageList: React.FC<MessageListProps> = ({
           role="alert"
         >
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
-            <AlertCircle size={18} color="var(--brick)" style={{ flexShrink: 0, marginTop: '2px' }} />
+            <AlertCircle size={18} color="var(--terracotta)" style={{ flexShrink: 0, marginTop: '2px' }} />
             <div style={{ flex: 1, fontSize: '0.85rem', color: 'var(--chocolate)' }}>
-              <strong>AI Response Failed:</strong> {aiError}
+              <strong>Notice:</strong> {normalizeMessageText(aiError)}
             </div>
           </div>
           {onRetryMessage && lastUserMessage && (
@@ -300,7 +304,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                 padding: '0.25rem 0.65rem',
                 gap: '0.35rem',
               }}
-              onClick={() => onRetryMessage(lastUserMessage)}
+              onClick={() => onRetryMessage(normalizeMessageText(lastUserMessage))}
             >
               <RotateCcw size={13} />
               <span>Retry Question</span>

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import type { Message } from './types';
 import { X, User, Maximize2 } from 'lucide-react';
 import { formatTime } from '../../lib/time';
+import { normalizeMessageText } from './signBridgeBot';
 
 interface LargeDisplayModeProps {
   isOpen: boolean;
@@ -73,6 +74,7 @@ export const LargeDisplayMode: React.FC<LargeDisplayModeProps> = ({
         ) : (
           messages.map(msg => {
             const isSigner = msg.sender === 'signer';
+            const safeText = normalizeMessageText(msg.text);
             return (
               <div
                 key={msg.id}
@@ -91,11 +93,11 @@ export const LargeDisplayMode: React.FC<LargeDisplayModeProps> = ({
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <User size={18} color={isSigner ? 'var(--terracotta)' : 'var(--brown)'} />
-                    {isSigner ? 'SIGNER' : 'DESK OPERATOR'}
+                    {isSigner ? 'SIGNER' : 'ASSISTANT'}
                   </span>
                   <span>{formatTime(msg.timestamp)}</span>
                 </div>
-                <div>{msg.text}</div>
+                <div>{safeText}</div>
               </div>
             );
           })
