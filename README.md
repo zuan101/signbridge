@@ -41,7 +41,7 @@ Landing Page (SignText Website)
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Start development server at http://localhost:5173 |
+| `npm run dev` | Start development server at https://signbridge-one-swart.vercel.app/ |
 | `npm run build` | Production build to `dist/` |
 | `npm run test` | Run Vitest unit tests |
 | `npm run audit:colors` | Source + CSSOM no-blue color audit |
