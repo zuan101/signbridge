@@ -12,8 +12,7 @@ import {
   Key, 
   RefreshCw, 
   AlertCircle,
-  Volume2,
-  Zap
+  Volume2
 } from 'lucide-react';
 import { 
   decodeAudioMetadata, 

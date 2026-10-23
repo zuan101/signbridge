@@ -1,11 +1,12 @@
-export type MessageSender = 'signer' | 'reply';
+export type MessageSender = 'signer' | 'reply' | 'assistant';
 
 export interface Message {
   id: string;
   sender: MessageSender;
   text: string;
   timestamp: number;
-  status?: 'confirmed' | 'draft';
+  status?: 'confirmed' | 'draft' | 'error';
+  editedAt?: number;
 }
 
 export interface ConversationSession {

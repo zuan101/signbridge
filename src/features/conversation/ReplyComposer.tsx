@@ -1,51 +1,56 @@
 import React, { useState } from 'react';
-import { Send, VolumeX, Mic } from 'lucide-react';
+import { Send, VolumeX, Mic, Loader2 } from 'lucide-react';
 import { VoiceMessageTranscriberModal } from './VoiceMessageTranscriberModal';
 
 interface ReplyComposerProps {
   onSendReply: (text: string) => void;
-  quickReplies: string[];
+  quickReplies?: string[];
   isSpeaking: boolean;
   onStopSpeaking: () => void;
+  isAiGenerating?: boolean;
 }
 
 export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   onSendReply,
-  quickReplies,
+  quickReplies = [],
   isSpeaking,
   onStopSpeaking,
+  isAiGenerating = false,
 }) => {
   const [text, setText] = useState<string>('');
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState<boolean>(false);
 
   const handleSend = () => {
-    if (!text.trim()) return;
+    if (!text.trim() || isAiGenerating) return;
     onSendReply(text.trim());
     setText('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
   const handleQuickReply = (chipText: string) => {
+    if (isAiGenerating) return;
     onSendReply(chipText);
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
-      {/* Quick Replies Tray */}
+      {/* Quick Suggestions Tray */}
       {quickReplies.length > 0 && (
-        <div className="quick-replies-tray" aria-label="Quick response shortcuts">
+        <div className="quick-replies-tray" aria-label="Suggested quick questions or responses">
           {quickReplies.map((qr, idx) => (
             <button
               key={idx}
               type="button"
               className="chip"
               onClick={() => handleQuickReply(qr)}
+              disabled={isAiGenerating}
+              style={{ opacity: isAiGenerating ? 0.6 : 1 }}
             >
               {qr}
             </button>
@@ -53,16 +58,17 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
         </div>
       )}
 
-      {/* Main Reply Input Bar */}
+      {/* Main Chat Input Bar */}
       <div className="reply-composer">
         <textarea
           className="reply-input"
-          placeholder="Type receptionist reply... (Press Ctrl+Enter to send)"
+          placeholder={isAiGenerating ? 'AI is responding...' : 'Type a message to the AI assistant... (Enter to send, Shift+Enter for newline)'}
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          aria-label="Type response to signer"
+          aria-label="Type message to AI assistant"
           rows={2}
+          disabled={isAiGenerating}
         />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -70,17 +76,19 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
             type="button"
             className="btn btn-primary"
             onClick={handleSend}
-            disabled={!text.trim()}
+            disabled={!text.trim() || isAiGenerating}
             style={{ height: '42px', padding: '0 1.25rem' }}
+            title="Send message to AI assistant"
           >
-            <Send size={16} />
-            <span>Reply</span>
+            {isAiGenerating ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+            <span>{isAiGenerating ? 'Sending...' : 'Send'}</span>
           </button>
 
           <button
             type="button"
             className="btn btn-secondary"
             onClick={() => setIsVoiceModalOpen(true)}
+            disabled={isAiGenerating}
             style={{ height: '32px', fontSize: '0.75rem', padding: '0 0.5rem', gap: '0.35rem' }}
             title="Convert voice message file (.mp3, .wav) or voice note to text"
           >
@@ -108,7 +116,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
         isOpen={isVoiceModalOpen}
         onClose={() => setIsVoiceModalOpen(false)}
         onInsertText={(transcribed) => setText(prev => prev ? `${prev} ${transcribed}` : transcribed)}
-        targetRole="receptionist"
+        targetRole="signer"
       />
     </div>
   );

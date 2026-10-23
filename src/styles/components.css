@@ -479,17 +479,111 @@
 }
 
 .message-bubble.signer {
-  align-self: flex-start;
-  background-color: var(--ivory);
-  border: 1.5px solid var(--sand);
-  border-top-left-radius: var(--radius-sm);
-}
-
-.message-bubble.reply {
   align-self: flex-end;
   background-color: var(--sand);
   border: 1.5px solid var(--border);
   border-top-right-radius: var(--radius-sm);
+  border-top-left-radius: var(--radius-lg);
+}
+
+.message-bubble.reply,
+.message-bubble[data-sender="assistant"] {
+  align-self: flex-start;
+  background-color: var(--ivory);
+  border: 1.5px solid var(--sand);
+  border-top-left-radius: var(--radius-sm);
+  border-top-right-radius: var(--radius-lg);
+}
+
+.ai-typing-bubble {
+  min-width: 140px;
+}
+
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.2rem;
+}
+
+.typing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background-color: var(--terracotta);
+  opacity: 0.4;
+  animation: typingPulse 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typingPulse {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.spin {
+  animation: spinAround 1s linear infinite;
+}
+
+@keyframes spinAround {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ai-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid var(--border);
+  background: none;
+}
+
+.ai-status-badge.online {
+  background-color: rgba(91, 105, 50, 0.12);
+  color: var(--olive);
+  border-color: rgba(91, 105, 50, 0.3);
+}
+
+.ai-status-badge.offline {
+  background-color: rgba(166, 58, 36, 0.1);
+  color: var(--brick);
+  border-color: rgba(166, 58, 36, 0.3);
+}
+
+.ai-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+}
+
+.ai-status-badge.online .ai-status-dot {
+  background-color: var(--olive);
+  box-shadow: 0 0 0 2px rgba(91, 105, 50, 0.2);
+}
+
+.ai-status-badge.offline .ai-status-dot {
+  background-color: var(--brick);
 }
 
 .message-header {
